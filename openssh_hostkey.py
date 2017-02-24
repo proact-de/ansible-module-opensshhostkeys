@@ -42,11 +42,11 @@ options:
         required: false
         default: 4096
         description:
-            - Size (in bits) of the hostkey key to generate
+            - Size (in bits) of the hostkey key to generate.
     type:
         required: false
         default: "RSA"
-        choices: [ RSA, DSA ]
+        choices: [ RSA, DSA, ECDSA ]
         description:
             - The algorithm used to generate the hostkey
     force:
@@ -109,6 +109,8 @@ try:
     from cryptography.hazmat.backends import default_backend as crypto_default_backend
     from cryptography.hazmat.primitives.asymmetric import rsa as crypto_rsa
     from cryptography.hazmat.primitives.asymmetric import dsa as crypto_dsa
+    from cryptography.hazmat.primitives.asymmetric import ec as crypto_ec
+
 except ImportError:
     python_cryptography_found = False
 else:
@@ -116,10 +118,10 @@ else:
 
 import os
 
-class PrivateKeyError(Exception):
+class HostkeyError(Exception):
     pass
 
-class PrivateKey(object):
+class Hostkey(object):
 
     def __init__(self, module):
         self.size = module.params['size']
@@ -138,53 +140,97 @@ class PrivateKey(object):
             self.name = "ssh_host_ecdsa_key"
         elif self.type =="ED25519":
             self.name = "ssh_host_ed25519_key"
-        elif self.type == "RSA1":
-            self.name = "ssh_host_key"
-        else:
-            raise PrivateKeyError("Unknown key type.")
+            self.size = 3000 # somewhat arbitrary, equivalent RSA Key Size
 
         self.fullpath = "%s/%s" % (self.path, self.name)
 
+    def check_key(self):
+        """ Check params of existing key """
+        if self.type == "RSA" and self.size < 1024:
+                raise HostkeyError("RSA keys must at least be 1024 bits.")
+        elif self.type == "DSA" and self.size != 1024:
+                raise HostkeyError("DSA keys can only be 1024 bits.")
+        elif self.type == "ECDSA" and self.size not in [256, 384, 521]: # yes, that is *really* 521 bits, not a typo!
+                raise HostkeyError("ECDSA key must be either 256, 384 or 521 bits (yes, 521 not 512!)")
+        elif self.type =="ED25519" and self.size != 3000:
+                raise HostkeyError("ED25519 keys have a fixed size, which cannot be altered.") # can't really happen, size is ignored for ED25519
+        
+        # if privkey is already there check size
+        self.key_exists = False
+        self.key_current_size = 0
+        if os.path.exists(self.fullpath):
+            if self.type == "ED25519":
+                self.curve = "EC25519"
+                self.key_current_size = 3000 # somewhat erbitrary, equivalent RSA Key Size
+                self.key_exists = True
+            else:
+                try:
+                    with open(self.fullpath, "rb") as key_file:
+                        self.privkey = crypto_serialization.load_pem_private_key(key_file.read(), password=None, backend=crypto_default_backend())
+                except IOError:
+                    raise HostkeyError(get_exception())
+
+                self.key_exists = True
+                if self.type != "ECDSA":
+                    self.key_current_size = self.privkey.key_size
+                else:
+                    self.pubkey = self.privkey.public_key()
+                    if self.pubkey.curve.name == "secp256r1":
+                        self.key_current_size = 256
+                    elif self.pubkey.curve.name == "secp384r1":
+                        self.key_current_size = 384
+                    elif self.pubkey.curve.name == "secp521r1":
+                        self.key_current_size = 521
+                    else:
+                        self.curve = self.pubkey.curve.name
 
     def generate(self, module):
         """ Generate a hostkey pair """
 
-        # if privkey is already there check size
-        if os.path.exists(self.fullpath):
-            try:
-                with open(self.fullpath, "rb") as key_file:
-                    self.privkey = crypto_serialization.load_pem_private_key(key_file.read(), password=None, backend_default=default_backend())
-            except IOError:
-                raise PrivateKeyError(get_exception())
-
-            # If size is wrong, delete the key. A new key will be generated in the next step.
-            if self.privkey.key_size != self.size:
-                self.remove()
-            else:
-                self.changed = False
+        # If size is wrong, delete the key. A new key will be generated in the next step.
+        if self.key_current_size != self.size:
+            self.remove()
+        else:
+            self.changed = False
 
         # If there is no key or user has set "force"
-        elif not os.path.exists(self.fullpath) or self.force:
+        if not self.key_exists or self.force:
             if self.type == "RSA":
                 self.key = crypto_rsa.generate_private_key(public_exponent=65537, key_size=self.size, backend=crypto_default_backend())
             elif self.type == "DSA":
                 self.key = crypto_dsa.generate_private_key(keysize=self.size, backend=crypto_default_backend())
+            elif self.type == "ECDSA":
+                if self.size == 256:
+                    self.curve = crypto_ec.SECP256R1()
+                elif self.size == 384:
+                    self.curve = crypto_ec.SECP384R1()
+                elif self.size == 521:
+                    self.curve = crypto_ec.SECP521R1()
+                self.key = crypto_ec.generate_private_key(curve=self.curve, backend=crypto_default_backend())
+            elif self.type == "ED25519":
+                self.size = 3000
+                self.curve = "EC25519"
             else:
-                raise PrivateKeyError("Unknown key type.") # can't happen - already caught in __init__
- 
-            self.privkey = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
-            self.pubkey = key.public_key().public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH)
+                raise HostkeyError("Unknown key type.")
+            
+            if self.type != "ED25519":
+                self.privkey = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+                self.pubkey = key.public_key().public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH)
 
-            try:
-                privfile = os.open(self.fullpath, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, self.mode)
-                os.write(privfile, privkey)
-                os.close(privfile)
-                pubfile = os.open(self.fullpath + ".pub", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, self.mode)
-                os.write(pubfile, pubkey)
-                os.close(pubfile)
-            except IOError:
-                self.remove()
-                raise PrivateKeyError(get_exception())
+                try:
+                    privfile = os.open(self.fullpath, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, self.mode)
+                    os.write(privfile, privkey)
+                    os.close(privfile)
+                    pubfile = os.open(self.fullpath + ".pub", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, self.mode)
+                    os.write(pubfile, pubkey)
+                    os.close(pubfile)
+                except IOError:
+                    self.remove()
+                    raise HostkeyError(get_exception())
+            else:
+                # use ssh-keygen to generate ED25519 Hostkeys
+                # Keyfile must not exist, as there is no "foce-overwrite" in ssh-keygen
+                retcode = subprocess.call(["ssh-keygen", "-q", "-t", "ed25519", "-N", "''", "-f", "ed25519_test"])
         else:
             self.changed = False
 
@@ -202,7 +248,7 @@ class PrivateKey(object):
         except OSError:
             e = get_exception()
             if e.errno != errno.ENOENT:
-                raise PrivateKeyError(e)
+                raise HostkeyError(e)
             else:
                 self.changed = False
 
@@ -223,55 +269,67 @@ def main():
 
     module = AnsibleModule(
         argument_spec = dict(
-            state = dict(default='present', choices=['present', 'absent'], type='str'),
-            size  = dict(default=4096,                                     type='int'),
-            type  = dict(default='RSA',     choices=['RSA', 'DSA'],        type='str'),
-            force = dict(default=False,                                    type='bool'),
-            path  = dict(default='/etc/ssh',                               type='path'),
+            state = dict(default='present', choices=['present', 'absent'],   type='str'),
+            size  = dict(default=4096,                                       type='int'),
+            type  = dict(default='RSA',     choices=['RSA', 'DSA', 'ECDSA'], type='str'),
+            force = dict(default=False,                                      type='bool'),
+            path  = dict(default='/etc/ssh',                                 type='path'),
         ),
         supports_check_mode  = True,
         add_file_common_args = True,
     )
 
     if not python_cryptography_found:
-        module.fail_json(msg='the python pyOpenSSL module is required')
+        module.fail_json(msg='the python python-cryptography module is required')
 
     path = module.params['path']
-    base_dir = module.params['path']
 
-    if not os.path.isdir(base_dir):
+    if not os.path.isdir(path):
         module.fail_json(name=base_dir, msg='The directory %s does not exist or the file is not a directory' % base_dir)
 
     if not module.params['mode']:
         module.params['mode'] = int('0600', 8)
 
-    private_key = PrivateKey(module)
-    if private_key.state == 'present':
+    hostkey = Hostkey(module)
+    try:
+        hostkey.check_key()
+    except HostkeyError as e:
+        module.fail_json(msg=str(e))
+    
+    if hostkey.state == 'present':
 
         if module.check_mode:
-            result = private_key.dump()
-            result['changed'] = module.params['force'] or not os.path.exists(path)
+            result = hostkey.dump()
+            result['no_key'] = not hostkey.key_exists
+            result['key_wrong_size'] = (hostkey.key_exists and hostkey.key_current_size != hostkey.size)
+            result['key_current_size'] = hostkey.key_current_size
+            try:
+                result['ecc_curve'] = hostkey.ecc_curve
+            except AttributeError:
+                pass
+
+            result['changed'] = module.params['force'] or not hostkey.key_exists or (hostkey.key_exists and hostkey.key_current_size != hostkey.size)
             module.exit_json(**result)
 
         try:
-            private_key.generate(module)
-        except PrivateKeyError:
+            hostkey.generate(module)
+        except HostkeyError:
             e = get_exception()
             module.fail_json(msg=str(e))
     else:
 
         if module.check_mode:
-            result = private_key.dump()
-            result['changed'] = os.path.exists(path)
+            result = hostkey.dump()
+            result['changed'] = self.key_exists
             module.exit_json(**result)
 
         try:
-            private_key.remove()
-        except PrivateKeyError:
+            hostkey.remove()
+        except HostkeyError:
             e = get_exception()
             module.fail_json(msg=str(e))
 
-    result = private_key.dump()
+    result = hostkey.dump()
 
     module.exit_json(**result)
 
