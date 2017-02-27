@@ -342,7 +342,7 @@ def main():
 
         if module.check_mode:
             result = hostkey.dump()
-            result['changed'] = module.params['force'] or not hostkey.key_exists or (hostkey.key_exists and hostkey.key_current_size != hostkey.size)
+            result['changed'] = module.params['force'] or not hostkey.key_exists or (hostkey.key_exists and (hostkey.key_current_size != hostkey.size and not hostkey.ignore_size))
             module.exit_json(**result)
 
         try:
