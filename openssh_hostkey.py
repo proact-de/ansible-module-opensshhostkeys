@@ -134,6 +134,8 @@ class Hostkey(object):
         self.check_mode = module.check_mode
         if self.type == "RSA":
             self.name = "ssh_host_rsa_key"
+        elif self.type == "RSA1":
+            self.name = "ssh_host_key"
         elif self.type == "DSA":
             self.name = "ssh_host_dsa_key"
         elif self.type == "ECDSA":
@@ -147,13 +149,13 @@ class Hostkey(object):
     def check_key(self):
         """ Check params of existing key """
         if self.type == "RSA" and self.size < 1024:
-                raise HostkeyError("RSA keys must at least be 1024 bits.")
+            raise HostkeyError("RSA keys must at least be 1024 bits.")
         elif self.type == "DSA" and self.size != 1024:
-                raise HostkeyError("DSA keys can only be 1024 bits.")
+            raise HostkeyError("DSA keys can only be 1024 bits.")
         elif self.type == "ECDSA" and self.size not in [256, 384, 521]: # yes, that is *really* 521 bits, not a typo!
-                raise HostkeyError("ECDSA key must be either 256, 384 or 521 bits (yes, 521 not 512!)")
+            raise HostkeyError("ECDSA key must be either 256, 384 or 521 bits (yes, 521 not 512!)")
         elif self.type =="ED25519" and self.size != 3000:
-                raise HostkeyError("ED25519 keys have a fixed size, which cannot be altered.") # can't really happen, size is ignored for ED25519
+            raise HostkeyError("ED25519 keys have a fixed size, which cannot be altered.") # can't really happen, size is ignored for ED25519
         
         # if privkey is already there check size
         self.key_exists = False
@@ -163,6 +165,9 @@ class Hostkey(object):
                 self.curve = "EC25519"
                 self.key_current_size = 3000 # somewhat erbitrary, equivalent RSA Key Size
                 self.key_exists = True
+            elif self.type == "RSA1":
+                self.key_exists = True
+                self.key_current_size = 1024
             else:
                 try:
                     with open(self.fullpath, "rb") as key_file:
@@ -264,16 +269,15 @@ class Hostkey(object):
 
         return result
 
-## FIXME: This needs reworking!
 def main():
 
     module = AnsibleModule(
         argument_spec = dict(
-            state = dict(default='present', choices=['present', 'absent'],   type='str'),
-            size  = dict(default=4096,                                       type='int'),
-            type  = dict(default='RSA',     choices=['RSA', 'DSA', 'ECDSA'], type='str'),
-            force = dict(default=False,                                      type='bool'),
-            path  = dict(default='/etc/ssh',                                 type='path'),
+            state = dict(default='present', choices=['present', 'absent'],                      type='str'),
+            size  = dict(default=4096,                                                          type='int'),
+            type  = dict(default='RSA',     choices=['RSA', 'RSA1', 'DSA', 'ECDSA', 'ED25519'], type='str'),
+            force = dict(default=False,                                                         type='bool'),
+            path  = dict(default='/etc/ssh',                                                    type='path'),
         ),
         supports_check_mode  = True,
         add_file_common_args = True,
@@ -285,12 +289,15 @@ def main():
     path = module.params['path']
 
     if not os.path.isdir(path):
-        module.fail_json(name=base_dir, msg='The directory %s does not exist or the file is not a directory' % base_dir)
+        module.fail_json(name=base_dir, msg='The directory %s does not exist or is not a directory' % base_dir)
 
     if not module.params['mode']:
         module.params['mode'] = int('0600', 8)
 
     hostkey = Hostkey(module)
+    if module.params['type'] == "RSA1" and not module.params['state'] == "absent":
+        module.fail_json(msg="RSA1 Keys can only be removed (state=absent)")
+
     try:
         hostkey.check_key()
     except HostkeyError as e:
@@ -320,7 +327,7 @@ def main():
 
         if module.check_mode:
             result = hostkey.dump()
-            result['changed'] = self.key_exists
+            result['changed'] = hostkey.key_exists
             module.exit_json(**result)
 
         try:
