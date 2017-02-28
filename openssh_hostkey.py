@@ -261,9 +261,9 @@ class Hostkey(object):
                     raise HostkeyError(get_exception())
             else:
                 # use ssh-keygen to generate ED25519 Hostkeys
-                # Keyfile must not exist, as there is no "foce-overwrite" in ssh-keygen
+                # Keyfile must not exist, as there is no "force-overwrite" in ssh-keygen
                 self.remove()
-                retcode = subprocess.call(["ssh-keygen", "-q", "-t", "ed25519", "-N", "''", "-f", self.fullpath])
+                retcode = subprocess.call(["ssh-keygen", "-q", "-t", "ed25519", "-N", '', "-f", self.fullpath])
                 self.changed = True
         else:
             self.changed = False
