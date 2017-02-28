@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python
 # -*- coding: utf-8 -*-
 
 # (c) 2017, Patrick Dreker <patrick.dreker@teamix.de>
@@ -23,13 +23,13 @@ ANSIBLE_METADATA = {'status': ['preview'],
 
 DOCUMENTATION = '''
 ---
-module: ssh_hostkeys
+module: ssh_hostkey
 author: "Patrick Dreker"
 short_description: Manages OpenSSH hostkeys
 description:
     - "This module manages OpenSSH hostkeys. Keys can be queried, checked and generated."
 requirements:
-    - "python-cryptography"
+    - "cryptography"
 options:
     state:
         required: false
@@ -42,7 +42,7 @@ options:
         default: 0
         description: |
             - Size (in bits) of the hostkey key to generate. Default is 0 which means:
-                - DSA/DSA1: 1024 bits
+                - DSA/RSA1: 1024 bits
                 - RSA: 4096 bits
                 - ECDSA: 521 bits
                 - ED25519: 128 bits
@@ -55,7 +55,7 @@ options:
     type:
         required: false
         default: "RSA"
-        choices: [ RSA, DSA, DSA1, ECDSA, ED25519 ]
+        choices: [ RSA, DSA, RSA1, ECDSA, ED25519 ]
         description:
             - The algorithm used to generate the hostkey
     force:
@@ -140,7 +140,7 @@ class Hostkey(object):
 
     def __init__(self, module):
         
-        self.default_size = { 'RSA': 4096, 'DSA': 1024, 'DSA1': 1024, 'ECDSA': 521, 'ED25519': 128 }
+        self.default_size = { 'RSA': 4096, 'DSA': 1024, 'RSA1': 1024, 'ECDSA': 521, 'ED25519': 128 }
 
         self.size = module.params['size']
         self.state = module.params['state']
@@ -309,7 +309,7 @@ def main():
             state       = dict(default='present', choices=['present', 'absent'],                      type='str'),
             size        = dict(default=0,                                                             type='int'),
             ignore_size = dict(default=False,                                                         type='bool'),
-            type        = dict(default='RSA',     choices=['RSA', 'DSA1', 'DSA', 'ECDSA', 'ED25519'], type='str'),
+            type        = dict(default='RSA',     choices=['RSA', 'RSA1', 'DSA', 'ECDSA', 'ED25519'], type='str'),
             force       = dict(default=False,                                                         type='bool'),
             path        = dict(default='/etc/ssh',                                                    type='path'),
             pubmode     = dict(default=int('644', 8),                                                 type='raw')
@@ -319,7 +319,7 @@ def main():
     )
 
     if not python_cryptography_found:
-        module.fail_json(msg='the python python-cryptography module is required')
+        module.fail_json(msg='the python cryptography module is required')
 
     path = module.params['path']
 
@@ -330,8 +330,8 @@ def main():
         module.params['mode'] = int('0600', 8)
 
     hostkey = Hostkey(module)
-    if module.params['type'] == "DSA1" and not module.params['state'] == "absent":
-        module.fail_json(msg="DSA1 Keys can only be removed (state=absent)")
+    if module.params['type'] == "RSA1" and not module.params['state'] == "absent":
+        module.fail_json(msg="RSA1 Keys can only be removed (state=absent)")
 
     try:
         hostkey.check_key()
