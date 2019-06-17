@@ -17,7 +17,7 @@
 # along with Ansible.  If not, see <http://www.gnu.org/licenses/>.
 
 ANSIBLE_METADATA = {'status': ['preview'],
-                    'supported_by': 'teamix',
+                    'supported_by': 'Proact Deutschland',
                     'version': '0.1'}
 
 
