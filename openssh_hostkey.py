@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 
-# (c) 2017, Patrick Dreker <patrick.dreker@teamix.de>
+# (c) 2017, Patrick Dreker <patrick.dreker@proact.de>
 #
 # Ansible is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -86,7 +86,7 @@ EXAMPLES = '''
 # Force regenerate an OpenSSH hostkey if it already exists
 - openssh_hostkey:
     force: True
-# Generate an OpenSSL private key with a different algorithm (ECDSA). If a key already exists do not regenrate it, if there is no key, generate one with 256 bits.
+# Generate an OpenSSH private key with a different algorithm (ECDSA). If a key already exists do not regenrate it, if there is no key, generate one with 256 bits.
 - openssl_privatekey:
     size: 256
     ignore_size: true
@@ -129,7 +129,7 @@ try:
 except ImportError:
     python_cryptography_found = False
 else:
-    python_cryptography_found = True  
+    python_cryptography_found = True
 
 import os
 
@@ -139,7 +139,7 @@ class HostkeyError(Exception):
 class Hostkey(object):
 
     def __init__(self, module):
-        
+
         self.default_size = { 'RSA': 4096, 'DSA': 1024, 'RSA1': 1024, 'ECDSA': 521, 'ED25519': 128 }
 
         self.size = module.params['size']
@@ -170,7 +170,7 @@ class Hostkey(object):
 
     def check_key(self):
         """ Check params of existing key """
-        
+
         if self.type == "RSA" and self.size < 1024:
             raise HostkeyError("RSA keys must at least be 1024 bits.")
         elif self.type == "DSA" and self.size != 1024:
@@ -179,7 +179,7 @@ class Hostkey(object):
             raise HostkeyError("ECDSA key must be either 256, 384 or 521 bits (yes, 521 not 512!)")
         elif self.type =="ED25519" and self.size != 128:
             raise HostkeyError("ED25519 keys have a fixed size, which cannot be altered.") # can't really happen, size is ignored for ED25519
-        
+
         # if privkey is already there check size
         self.key_exists = False
         self.key_current_size = 0
@@ -243,7 +243,7 @@ class Hostkey(object):
                 self.curve = "EC25519"
             else:
                 raise HostkeyError("Unknown key type.")
-            
+
             if self.type != "ED25519":
                 self.privkey = self.key.private_bytes(crypto_serialization.Encoding.PEM, crypto_serialization.PrivateFormat.PKCS8, crypto_serialization.NoEncryption())
                 self.pubkey = self.key.public_key().public_bytes(crypto_serialization.Encoding.OpenSSH, crypto_serialization.PublicFormat.OpenSSH)
@@ -337,7 +337,7 @@ def main():
         hostkey.check_key()
     except HostkeyError as e:
         module.fail_json(msg=str(e))
-    
+
     if hostkey.state == 'present':
 
         if module.check_mode:
