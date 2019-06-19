@@ -4,7 +4,7 @@ This Module allows you to manipulate OpenSSH Hostkeys from an Ansible Playbook.
 
 ## Installation
 
-Drop this directory into your Ansible modules folder. Destination hosts will need python cryptography installed to be able to use this module. You will have to ensure this manually with your playbook.
+Drop `openssh_hostkey.py`from this repository into your Ansible modules folder. Destination hosts will need python cryptography installed to be able to use this module. You will have to ensure this manually with your playbook (see <https://github.com/proact-de/ansible-role-openssh> for example how to do this)
 
 ### Example usage
 
